@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CYBER-SOC AGENT</title>
+<style>
+:root{--bg:#0b0e14;--panel:#11151d;--panel2:#161b26;--border:#232a38;--text:#d6dce5;--dim:#7c8798;--accent:#4f8cff;--crit:#ff4d5e;--high:#ff9d42;--med:#ffd54a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:13px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--panel)}
+header h1{font-size:15px;margin:0}header h1 span{color:var(--accent)}
+.tabs{display:flex;gap:4px}.tab{padding:6px 14px;border-radius:4px;cursor:pointer;color:var(--dim)}.tab.active{background:var(--panel2);color:var(--text)}
+main{padding:16px 20px;max-width:1400px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+.card,.panel{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:14px}.panel{padding:18px;margin-bottom:16px}
+.card .label{color:var(--dim);font-size:11px;text-transform:uppercase}.card .value{font-size:26px;font-weight:600;margin-top:4px}
+.panel h2{font-size:12px;text-transform:uppercase;color:var(--dim);margin:0 0 12px;border-bottom:1px solid var(--border);padding-bottom:8px}
+table{width:100%;border-collapse:collapse}th{text-align:left;color:var(--dim);font-size:11px;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid var(--border)}
+td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}tr.clickable:hover{background:var(--panel2);cursor:pointer}
+.sev{padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600}.sev-critical{background:rgba(255,77,94,.15);color:var(--crit)}
+.sev-high{background:rgba(255,157,66,.15);color:var(--high)}.sev-medium{background:rgba(255,213,74,.15);color:var(--med)}
+.sev-low,.sev-informational{background:rgba(124,135,152,.15);color:var(--dim)}
+.eid{font-family:ui-monospace,monospace;background:var(--panel2);padding:1px 5px;border-radius:3px;color:var(--accent);font-size:11px}
+.tl{display:flex;gap:10px;padding:7px 0;border-bottom:1px dashed var(--border)}.tl .ts{color:var(--dim);font-family:ui-monospace,monospace;white-space:nowrap}
+.chain{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.step{background:var(--panel2);padding:5px 10px;border-radius:4px;border:1px solid var(--border)}
+.chip{display:inline-block;background:var(--panel2);border:1px solid var(--border);padding:3px 8px;border-radius:4px;margin:2px;font-family:ui-monospace,monospace;font-size:11px}
+.chip.confirmed{border-color:var(--crit);color:var(--crit)}.chip.suspected{border-color:var(--med);color:var(--med)}
+.btn{background:var(--accent);color:#fff;border:0;padding:7px 14px;border-radius:4px;cursor:pointer;font-size:12px;margin-right:8px;text-decoration:none;display:inline-block}
+.btn.reject{background:transparent;border:1px solid var(--crit);color:var(--crit)}.btn.alt{background:var(--panel2);border:1px solid var(--border);color:var(--text)}
+.muted{color:var(--dim)}.back{color:var(--accent);cursor:pointer;display:inline-block;margin-bottom:12px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+.p-P1{color:var(--crit);font-weight:700}.p-P2{color:var(--high);font-weight:700}.p-P3{color:var(--med);font-weight:700}
+.banner{background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:8px 12px;margin-bottom:16px;color:var(--dim);font-size:12px}
+</style></head><body>
+<header><h1>CYBER<span>-SOC</span> AGENT</h1>
+<div class="tabs"><div class="tab active" data-v="dashboard">Dashboard</div><div class="tab" data-v="alerts">Alerts</div>
+<div class="tab" data-v="incidents">Incidents</div><div class="tab" data-v="audit">Audit</div></div></header>
+<main id="main"></main>
+<script>
+const main = document.getElementById("main");
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active")); t.classList.add("active"); render(t.dataset.v);
+}));
+// SECURITY: every value derived from event content or human input goes through esc() before innerHTML.
+// Unescaped values are only fixed server-side enumerations or numbers.
+function esc(v){ if(v===null||v===undefined) return ""; return String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+const sev = s => "sev sev-" + esc(s || "informational");
+const up = s => esc((s || "").toUpperCase());
+async function j(url, o){ const r = await fetch(url, o); return r.json(); }
+const post = (url, body) => j(url, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body||{})});
+
+function render(v, p){ return ({dashboard:rDash, alerts:rAlerts, incidents:rIncs, audit:rAudit, detail:rDetail})[v](p); }
+
+function incTable(list){
+  if(!list.length) return '<div class="muted">No incidents yet. Run scripts/replay.py or POST /events/upload.</div>';
+  return `<table><tr><th>ID</th><th>Title</th><th>Severity</th><th>Risk</th><th>Confidence</th><th>Status</th><th>Created</th></tr>` +
+    list.map(i => `<tr class="clickable" data-id="${esc(i.incident_id)}"><td>${esc(i.incident_id)}</td><td>${esc(i.title)}</td>
+    <td><span class="${sev(i.severity)}">${up(i.severity)}</span></td><td>${Number(i.risk_score)||"-"}</td>
+    <td>${Math.round(i.confidence*100)}%</td><td>${esc(i.status)}</td><td class="muted">${esc((i.created_at||"").slice(0,19))}</td></tr>`).join("") + "</table>";
+}
+const wire = () => document.querySelectorAll("tr.clickable").forEach(r => r.addEventListener("click", () => render("detail", r.dataset.id)));
+
+async function rDash(){
+  const [s, incs, audit] = await Promise.all([j("/dashboard/summary"), j("/incidents?limit=10"), j("/audit?limit=8")]);
+  main.innerHTML = `<div class="banner">All response actions are <b>SIMULATED</b> and require human approval. The AI investigation is decision support, not a verdict.</div>
+  <div class="grid">
+   <div class="card"><div class="label">Events</div><div class="value">${Number(s.total_events)}</div></div>
+   <div class="card"><div class="label">Alerts</div><div class="value">${Number(s.total_alerts)}</div></div>
+   <div class="card"><div class="label">Incidents</div><div class="value">${Number(s.total_incidents)}</div></div>
+   <div class="card"><div class="label">Critical / High</div><div class="value">${Number(s.critical_high_incidents)}</div></div>
+   <div class="card"><div class="label">Open</div><div class="value">${Number(s.open_incidents)}</div></div></div>
+  <div class="panel"><h2>Recent Incidents</h2>${incTable(incs)}</div>
+  <div class="panel"><h2>Recent Activity</h2>${audit.map(a=>`<div class="row"><span>${esc(a.action)} <span class="eid">${esc(a.target)}</span></span><span class="muted">${esc(a.actor)} · ${esc(a.timestamp)}</span></div>`).join("")}</div>`;
+  wire();
+}
+async function rAlerts(){
+  const a = await j("/alerts?limit=300");
+  main.innerHTML = `<div class="panel"><h2>Alerts</h2><table><tr><th>Alert</th><th>Rule</th><th>Severity</th><th>Confidence</th><th>Reason</th><th>Incident</th><th>Created</th></tr>` +
+   a.map(x=>`<tr><td>${esc(x.alert_id)}</td><td>${esc(x.rule)}</td><td><span class="${sev(x.severity)}">${up(x.severity)}</span></td>
+   <td>${Math.round(x.confidence*100)}%</td><td>${esc((x.reasoning||[])[0])}</td><td>${esc(x.incident_id)||"-"}</td><td class="muted">${esc((x.created_at||"").slice(0,19))}</td></tr>`).join("") + "</table></div>";
+}
+async function rIncs(){ main.innerHTML = `<div class="panel"><h2>All Incidents</h2>${incTable(await j("/incidents?limit=500"))}</div>`; wire(); }
+async function rAudit(){
+  const a = await j("/audit?limit=300");
+  main.innerHTML = `<div class="panel"><h2>Audit Trail</h2><table><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Result</th></tr>` +
+   a.map(e=>`<tr><td class="muted">${esc(e.timestamp)}</td><td>${esc(e.actor)}</td><td>${esc(e.action)}</td><td>${esc(e.target)||"-"}</td><td>${esc(e.result)||"-"}</td></tr>`).join("") + "</table></div>";
+}
+function actionRow(a){
+  const pending = a.status === "pending_approval";
+  return `<div class="row" id="act-${esc(a.action_id)}"><div><b>${esc(a.action_type)}</b> on <span class="eid">${esc(a.target)}</span>
+   <div class="muted">${esc(a.reason)}</div><div class="muted">${esc(a.result)}</div><div class="muted">State: ${esc(a.status)}${a.approved_by?" · decided by "+esc(a.approved_by):""}</div></div>
+   <div>${pending?`<button class="btn" data-act="${esc(a.action_id)}" data-d="approve">Approve</button><button class="btn reject" data-act="${esc(a.action_id)}" data-d="reject">Reject</button>`:""}</div></div>`;
+}
+function bindActions(root){
+  root.querySelectorAll("button[data-act]").forEach(b => b.addEventListener("click", async () => {
+    const r = await post(`/actions/${encodeURIComponent(b.dataset.act)}/${b.dataset.d}`, {approved_by:"analyst_demo", rejected_by:"analyst_demo"});
+    if(r.error){ alert(r.error); return; }
+    const el = document.getElementById("act-"+b.dataset.act); el.outerHTML = actionRow(r); bindActions(document.getElementById("actions"));
+  }));
+}
+async function rDetail(id){
+  const i = await j(`/incidents/${encodeURIComponent(id)}`); const inv = i.investigation || {};
+  main.innerHTML = `<a class="back" id="back">&larr; Incidents</a>
+  <div class="panel"><div class="muted">${esc(i.incident_id)}</div><div style="font-size:18px;font-weight:600;margin:4px 0 8px">${esc(i.title)}</div>
+   <span class="${sev(i.severity)}">${up(i.severity)}</span> &nbsp;<span class="muted">Confidence ${Math.round(i.confidence*100)}% · Risk ${Number(i.risk_score)||"-"}/100 · ${esc(i.status)}</span></div>
+  <div class="panel"><h2>Timeline</h2>${(i.timeline||[]).map(t=>`<div class="tl"><div class="ts">${esc(t.timestamp)}</div><div>${esc(t.description)} <span class="eid">${esc(t.event_id)}</span></div></div>`).join("")||'<span class="muted">None</span>'}</div>
+  <div class="panel"><h2>Attack Chain</h2><div class="chain">${(i.attack_chain||[]).map((s,k,a)=>`<div class="step">${esc(s)}</div>`+(k<a.length-1?"&rarr;":"")).join("")||'<span class="muted">Single-stage</span>'}</div></div>
+  <div class="panel"><h2>MITRE ATT&amp;CK (deterministic mapping)</h2>${(i.mitre_techniques||[]).map(m=>`<span class="chip ${esc(m.status)}">${esc(m.technique_id)} ${esc(m.technique_name)} (${esc(m.status)}, ${Math.round(m.confidence*100)}%)</span>`).join("")||'<span class="muted">None</span>'}</div>
+  <div class="panel"><h2>Evidence</h2>${(i.evidence||[]).map(e=>`<span class="eid">${esc(e)}</span>`).join(" ")}</div>
+  <div class="panel"><h2>AI Investigation (provider: ${esc(inv.provider)||"n/a"})</h2>
+   <p><b>Summary:</b> ${esc(inv.incident_summary)||"Not investigated."}</p><p><b>Severity:</b> ${esc(inv.severity_explanation)}</p>
+   <p><b>Could this be benign?</b> ${esc(inv.alternative_explanation)}</p>
+   <p><b>Uncertainty / missing evidence:</b></p><ul>${(inv.missing_evidence||[]).map(m=>`<li>${esc(m)}</li>`).join("")}</ul>
+   <p><b>Next steps:</b></p><ul>${(inv.recommended_next_steps||[]).map(s=>`<li>${esc(s)}</li>`).join("")}</ul></div>
+
+<div class="panel"><h2>Recommended Actions</h2>
+${(i.recommendations||[]).map((r,k)=>{
+  const supportedActions = [
+    "Block or rate-limit source IP at the perimeter",
+    "Temporarily disable the affected account pending verification",
+    "Revoke active sessions for the affected account",
+    "Isolate the affected host from the network",
+    "Block the destination IP/domain at the firewall"
+  ];
+  const canPropose = supportedActions.includes(r.action);
+  return `<div class="row">
+    <div>
+      <span class="p-${esc(r.priority)}">${esc(r.priority)}</span>
+      ${esc(r.action)}
+      <div class="muted">${esc(r.reason)}</div>
+      <div class="muted">${canPropose
+        ? "Simulation available · Human approval required"
+        : "Review required · Investigation-only recommendation"}
+      </div>
+    </div>
+    ${canPropose
+      ? `<button class="btn" data-prop="${k}">Propose</button>`
+      : `<span class="muted">Review Required</span>`}
+  </div>`;
+}).join("")||'<span class="muted">None</span>'}
+</div>
+
+  <div class="panel"><h2>Proposed / Decided Responses (SIMULATED, human approval required)</h2><div id="actions">${(i.response_actions||[]).map(actionRow).join("")}</div></div>
+  <div class="panel"><h2>Report</h2><a class="btn" target="_blank" href="/reports/${encodeURIComponent(i.incident_id)}?format=markdown">Markdown</a><a class="btn alt" target="_blank" href="/reports/${encodeURIComponent(i.incident_id)}">JSON</a></div>`;
+  document.getElementById("back").addEventListener("click", () => render("incidents"));
+  main.querySelectorAll("button[data-prop]").forEach(b => b.addEventListener("click", async () => {
+    const r = await post(`/incidents/${encodeURIComponent(i.incident_id)}/actions`, {recommendation_index: Number(b.dataset.prop)});
+    if(r.error){ alert(r.error); return; }
+    document.getElementById("actions").insertAdjacentHTML("beforeend", actionRow(r)); bindActions(document.getElementById("actions"));
+  }));
+  bindActions(document.getElementById("actions"));
+}
+render("dashboard");
+</script></body></html>

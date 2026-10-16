@@ -1,0 +1,4 @@
+Flask>=3.0
+scikit-learn>=1.3
+numpy>=1.26
+# Tests use stdlib unittest: python3 -m unittest discover -s tests -p "test_*.py"

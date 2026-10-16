@@ -1,0 +1,52 @@
+{
+ "scenario": "benign_admin_activity",
+ "description": "Routine admin work: one clean login, ordinary cmdlets, 2 hosts. Expect ZERO alerts (false-positive check).",
+ "events": [
+  {
+   "event_id": "ba_evt_001",
+   "timestamp": "2026-10-02T09:00:00",
+   "source": "authentication",
+   "event_type": "login_success",
+   "severity": "informational",
+   "source_ip": "10.0.2.5",
+   "username": "sysadmin",
+   "hostname": "WS-050",
+   "message": "Successful authentication for sysadmin"
+  },
+  {
+   "event_id": "ba_evt_002",
+   "timestamp": "2026-10-02T09:01:00",
+   "source": "endpoint",
+   "event_type": "process_create",
+   "severity": "informational",
+   "username": "sysadmin",
+   "hostname": "WS-050",
+   "process": "powershell.exe",
+   "command": "Get-ADUser -Filter * | Select-Object Name,Enabled",
+   "message": "Routine PowerShell AD query"
+  },
+  {
+   "event_id": "ba_evt_003",
+   "timestamp": "2026-10-02T09:05:00",
+   "source": "endpoint",
+   "event_type": "process_create",
+   "severity": "informational",
+   "username": "sysadmin",
+   "hostname": "WS-050",
+   "process": "powershell.exe",
+   "command": "Restart-Service -Name Spooler",
+   "message": "Routine service restart"
+  },
+  {
+   "event_id": "ba_evt_004",
+   "timestamp": "2026-10-02T09:10:00",
+   "source": "authentication",
+   "event_type": "login_success",
+   "severity": "informational",
+   "source_ip": "10.0.2.5",
+   "username": "sysadmin",
+   "hostname": "PRINTSRV-01",
+   "message": "Successful authentication for sysadmin"
+  }
+ ]
+}

@@ -1,0 +1,28 @@
+{
+ "scenario": "privilege_escalation",
+ "description": "Standard account added to Domain Admins, no prior failures. Expect PRIVILEGE_ESCALATION only (T1098).",
+ "events": [
+  {
+   "event_id": "pe_evt_001",
+   "timestamp": "2026-10-02T16:40:00",
+   "source": "authentication",
+   "event_type": "login_success",
+   "severity": "informational",
+   "source_ip": "10.0.3.11",
+   "username": "tnguyen",
+   "hostname": "WS-451",
+   "message": "Successful authentication for tnguyen"
+  },
+  {
+   "event_id": "pe_evt_002",
+   "timestamp": "2026-10-02T16:42:00",
+   "source": "identity",
+   "event_type": "group_membership_change",
+   "severity": "high",
+   "username": "tnguyen",
+   "hostname": "WS-451",
+   "message": "tnguyen added to Domain Admins group",
+   "command": "net group \"Domain Admins\" tnguyen /add /domain"
+  }
+ ]
+}

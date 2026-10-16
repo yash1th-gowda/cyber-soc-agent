@@ -1,0 +1,61 @@
+{
+ "scenario": "brute_force",
+ "description": "5 failed logins from one external IP against one account, no success. Expect BRUTE_FORCE only (T1110).",
+ "events": [
+  {
+   "event_id": "bf_evt_001",
+   "timestamp": "2026-10-01T02:00:00",
+   "source": "authentication",
+   "event_type": "login_failure",
+   "severity": "low",
+   "source_ip": "203.0.113.7",
+   "username": "jsmith",
+   "hostname": "WS-220",
+   "message": "Failed authentication for jsmith"
+  },
+  {
+   "event_id": "bf_evt_002",
+   "timestamp": "2026-10-01T02:00:45",
+   "source": "authentication",
+   "event_type": "login_failure",
+   "severity": "low",
+   "source_ip": "203.0.113.7",
+   "username": "jsmith",
+   "hostname": "WS-220",
+   "message": "Failed authentication for jsmith"
+  },
+  {
+   "event_id": "bf_evt_003",
+   "timestamp": "2026-10-01T02:01:30",
+   "source": "authentication",
+   "event_type": "login_failure",
+   "severity": "low",
+   "source_ip": "203.0.113.7",
+   "username": "jsmith",
+   "hostname": "WS-220",
+   "message": "Failed authentication for jsmith"
+  },
+  {
+   "event_id": "bf_evt_004",
+   "timestamp": "2026-10-01T02:02:15",
+   "source": "authentication",
+   "event_type": "login_failure",
+   "severity": "low",
+   "source_ip": "203.0.113.7",
+   "username": "jsmith",
+   "hostname": "WS-220",
+   "message": "Failed authentication for jsmith"
+  },
+  {
+   "event_id": "bf_evt_005",
+   "timestamp": "2026-10-01T02:03:00",
+   "source": "authentication",
+   "event_type": "login_failure",
+   "severity": "low",
+   "source_ip": "203.0.113.7",
+   "username": "jsmith",
+   "hostname": "WS-220",
+   "message": "Failed authentication for jsmith"
+  }
+ ]
+}

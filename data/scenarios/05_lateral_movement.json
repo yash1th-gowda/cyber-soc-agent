@@ -1,0 +1,50 @@
+{
+ "scenario": "lateral_movement",
+ "description": "One account authenticates to 4 distinct hosts in 6 minutes. Expect POSSIBLE_LATERAL_MOVEMENT (T1021).",
+ "events": [
+  {
+   "event_id": "lm_evt_001",
+   "timestamp": "2026-10-02T20:00:00",
+   "source": "authentication",
+   "event_type": "login_success",
+   "severity": "informational",
+   "source_ip": "10.0.1.15",
+   "username": "svc_backup",
+   "hostname": "FILESRV-01",
+   "message": "Successful authentication for svc_backup"
+  },
+  {
+   "event_id": "lm_evt_002",
+   "timestamp": "2026-10-02T20:02:00",
+   "source": "authentication",
+   "event_type": "login_success",
+   "severity": "informational",
+   "source_ip": "10.0.1.15",
+   "username": "svc_backup",
+   "hostname": "FILESRV-02",
+   "message": "Successful authentication for svc_backup"
+  },
+  {
+   "event_id": "lm_evt_003",
+   "timestamp": "2026-10-02T20:04:00",
+   "source": "authentication",
+   "event_type": "login_success",
+   "severity": "informational",
+   "source_ip": "10.0.1.15",
+   "username": "svc_backup",
+   "hostname": "DB-07",
+   "message": "Successful authentication for svc_backup"
+  },
+  {
+   "event_id": "lm_evt_004",
+   "timestamp": "2026-10-02T20:06:00",
+   "source": "authentication",
+   "event_type": "login_success",
+   "severity": "informational",
+   "source_ip": "10.0.1.15",
+   "username": "svc_backup",
+   "hostname": "DC-01",
+   "message": "Successful authentication for svc_backup"
+  }
+ ]
+}
