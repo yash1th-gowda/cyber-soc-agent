@@ -1,10 +1,51 @@
 
-# Python
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
+*$py.class
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# Virtual environments
 .venv/
 venv/
+env/
+ENV/
+
+# Python packaging and build artifacts
+.Python
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Testing and coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+junit.xml/
 
 # Local databases
 *.db
@@ -12,18 +53,35 @@ venv/
 *.sqlite
 *.sqlite3
 
-# Secrets
+# Environment variables and secrets
 .env
 .env.*
 !.env.example
 
-# Generated files
+# Logs and runtime files
 *.log
-.coverage
-htmlcov/
+instance/
+*.pid
 
-# Editors and OS
+# Jupyter
+.ipynb_checkpoints/
+
+# IDEs and editors
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# Operating system files
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+# Frontend dependencies and build output
+node_modules/
+npm-debug.log*
+dist/
+
+# Temporary files
+*.tmp
+*.bak
