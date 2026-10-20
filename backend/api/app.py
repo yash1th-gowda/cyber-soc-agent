@@ -151,25 +151,59 @@ def create_app(db_path: str = "cyber_soc.db") -> Flask:
         db.audit("system", "action_proposed", target=action["action_id"], result="pending_approval")
         return jsonify(action), 201
 
+
     def _decide(action_id, approve: bool):
         action = db.get_response_action(action_id)
         if not action:
             return jsonify({"error": "action not found"}), 404
+
         body = request.get_json(force=True, silent=True) or {}
-        who = str(body.get("approved_by" if approve else "rejected_by", "analyst"))[:64]
+        who = str(
+            body.get("approved_by" if approve else "rejected_by", "analyst")
+        )[:64]
+
         try:
-            result = simulator.approve_action(action, who) if approve else simulator.reject_action(action, who)
+            result = (
+                simulator.approve_action(action, who)
+                if approve
+                else simulator.reject_action(action, who)
+            )
         except ValueError as e:
             return jsonify({"error": str(e)}), 409
+
+        # Persist the authoritative action state first.
         db.insert_response_action(result)
-        if approve:
-            inc = db.get_incident(result["incident_id"])
-            if inc:
-                inc.setdefault("response_actions", []).append(result)
-                db.insert_incident(inc)
-        db.audit(who, "approve_response" if approve else "reject_response", target=result["target"],
-                 result="simulated" if approve else "rejected",
-                 details={"incident_id": result["incident_id"], "action_id": action_id})
+
+
+        # Keep the incident's response_actions list consistent with
+        # the existing API contract: only approved/simulated actions
+        # are included; rejected actions remain in the action table
+        # and audit trail.
+        inc = db.get_incident(result["incident_id"])
+        if inc:
+            actions = inc.get("response_actions", [])
+            actions = [
+                existing for existing in actions
+                if existing.get("action_id") != result["action_id"]
+            ]
+
+            if approve:
+                actions.append(result)
+
+            inc["response_actions"] = actions
+            db.insert_incident(inc)
+
+
+        db.audit(
+            who,
+            "approve_response" if approve else "reject_response",
+            target=result["target"],
+            result="simulated" if approve else "rejected",
+            details={
+                "incident_id": result["incident_id"],
+                "action_id": action_id,
+            },
+        )
         return jsonify(result)
 
     @app.route("/actions/<action_id>/approve", methods=["POST"])

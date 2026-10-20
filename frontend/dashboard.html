@@ -82,22 +82,52 @@ async function rAudit(){
   main.innerHTML = `<div class="panel"><h2>Audit Trail</h2><table><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Result</th></tr>` +
    a.map(e=>`<tr><td class="muted">${esc(e.timestamp)}</td><td>${esc(e.actor)}</td><td>${esc(e.action)}</td><td>${esc(e.target)||"-"}</td><td>${esc(e.result)||"-"}</td></tr>`).join("") + "</table></div>";
 }
+
 function actionRow(a){
   const pending = a.status === "pending_approval";
+  const controls = pending
+    ? `<button class="btn" data-act="${esc(a.action_id)}" data-d="approve">Approve</button><button class="btn reject" data-act="${esc(a.action_id)}" data-d="reject">Reject</button>`
+    : "";
+
   return `<div class="row" id="act-${esc(a.action_id)}"><div><b>${esc(a.action_type)}</b> on <span class="eid">${esc(a.target)}</span>
-   <div class="muted">${esc(a.reason)}</div><div class="muted">${esc(a.result)}</div><div class="muted">State: ${esc(a.status)}${a.approved_by?" · decided by "+esc(a.approved_by):""}</div></div>
-   <div>${pending?`<button class="btn" data-act="${esc(a.action_id)}" data-d="approve">Approve</button><button class="btn reject" data-act="${esc(a.action_id)}" data-d="reject">Reject</button>`:""}</div></div>`;
+   <div class="muted">${esc(a.reason)}</div><div class="muted">${esc(a.result || "")}</div><div class="muted">State: ${esc(a.status)}${a.approved_by?" · decided by "+esc(a.approved_by):""}</div></div>
+   <div>${controls}</div></div>`;
 }
+
+
+
 function bindActions(root){
+  if (!root) return;
+
   root.querySelectorAll("button[data-act]").forEach(b => b.addEventListener("click", async () => {
-    const r = await post(`/actions/${encodeURIComponent(b.dataset.act)}/${b.dataset.d}`, {approved_by:"analyst_demo", rejected_by:"analyst_demo"});
-    if(r.error){ alert(r.error); return; }
-    const el = document.getElementById("act-"+b.dataset.act); el.outerHTML = actionRow(r); bindActions(document.getElementById("actions"));
+    b.disabled = true;
+
+    const actionId = b.dataset.act;
+    const decision = b.dataset.d;
+    const incidentId = document.querySelector(".back")?.dataset?.incidentId;
+
+    try {
+      const r = await post(`/actions/${encodeURIComponent(actionId)}/${decision}`, {
+        approved_by: "analyst_demo",
+        rejected_by: "analyst_demo"
+      });
+
+      if (r.error) {
+        alert(r.error);
+      }
+    } catch (err) {
+      alert("Unable to update the response action. Please refresh and try again.");
+    }
+
+    if (incidentId) await rDetail(incidentId);
   }));
 }
+
+
 async function rDetail(id){
   const i = await j(`/incidents/${encodeURIComponent(id)}`); const inv = i.investigation || {};
-  main.innerHTML = `<a class="back" id="back">&larr; Incidents</a>
+  const currentIncidentId = i.incident_id;
+  main.innerHTML = `<a class="back" id="back" data-incident-id="${esc(currentIncidentId)}">&larr; Incidents</a>
   <div class="panel"><div class="muted">${esc(i.incident_id)}</div><div style="font-size:18px;font-weight:600;margin:4px 0 8px">${esc(i.title)}</div>
    <span class="${sev(i.severity)}">${up(i.severity)}</span> &nbsp;<span class="muted">Confidence ${Math.round(i.confidence*100)}% · Risk ${Number(i.risk_score)||"-"}/100 · ${esc(i.status)}</span></div>
   <div class="panel"><h2>Timeline</h2>${(i.timeline||[]).map(t=>`<div class="tl"><div class="ts">${esc(t.timestamp)}</div><div>${esc(t.description)} <span class="eid">${esc(t.event_id)}</span></div></div>`).join("")||'<span class="muted">None</span>'}</div>
@@ -141,10 +171,26 @@ ${(i.recommendations||[]).map((r,k)=>{
   <div class="panel"><h2>Report</h2><a class="btn" target="_blank" href="/reports/${encodeURIComponent(i.incident_id)}?format=markdown">Markdown</a><a class="btn alt" target="_blank" href="/reports/${encodeURIComponent(i.incident_id)}">JSON</a></div>`;
   document.getElementById("back").addEventListener("click", () => render("incidents"));
   main.querySelectorAll("button[data-prop]").forEach(b => b.addEventListener("click", async () => {
-    const r = await post(`/incidents/${encodeURIComponent(i.incident_id)}/actions`, {recommendation_index: Number(b.dataset.prop)});
-    if(r.error){ alert(r.error); return; }
-    document.getElementById("actions").insertAdjacentHTML("beforeend", actionRow(r)); bindActions(document.getElementById("actions"));
+    b.disabled = true;
+
+    try {
+      const r = await post(`/incidents/${encodeURIComponent(i.incident_id)}/actions`, {
+        recommendation_index: Number(b.dataset.prop)
+      });
+
+      if (r.error) {
+        alert(r.error);
+        b.disabled = false;
+        return;
+      }
+
+      await rDetail(i.incident_id);
+    } catch (err) {
+      alert("Unable to propose the response action. Please refresh and try again.");
+      b.disabled = false;
+    }
   }));
+
   bindActions(document.getElementById("actions"));
 }
 render("dashboard");
