@@ -250,5 +250,10 @@ def create_app(db_path: str = "cyber_soc.db") -> Flask:
 if __name__ == "__main__":
     application = create_app(os.environ.get("DB_PATH", "cyber_soc.db"))
     # debug OFF by default: Flask's debugger leaks stack traces/source. Opt in with FLASK_DEBUG=1 (local only).
-    application.run(host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", 5000)),
-                    debug=os.environ.get("FLASK_DEBUG", "0") == "1")
+    try:
+        application.run(host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", 5000)),
+                        debug=os.environ.get("FLASK_DEBUG", "0") == "1")
+    finally:
+        # create_app() does not close the DB (tests, WSGI servers and imports build apps without ever
+        # running this block); only this entry point knows when the server has stopped.
+        application.config["DB"].close()

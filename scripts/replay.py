@@ -15,33 +15,34 @@ SCEN = ROOT / "data" / "scenarios"
 
 
 def replay(scenario, db_path, speed):
-    pipe = Pipeline(Database(db_path))
-    events = sorted(scenario["events"], key=lambda e: e["timestamp"])
-    print(f"\n=== {scenario['scenario']} ({len(events)} events) ===")
-    prev, n_alerts = None, 0
-    for e in events:
-        ts = datetime.fromisoformat(e["timestamp"])
-        if prev and speed > 0:
-            time.sleep(min((ts - prev).total_seconds() / speed, 3.0))
-        prev = ts
-        try:
-            r = pipe.ingest_event(e)
-        except ValidationError as err:
-            print(f"  REJECTED {e.get('event_id')}: {err}")
-            continue
-        n_alerts += len(r["alerts"])
-        print(f"  {e['timestamp']}  {e['event_type']:<24}{' [%d alert(s)]' % len(r['alerts']) if r['alerts'] else ''}")
-        for a in r["alerts"]:
-            print(f"      -> {a['rule']} (confidence={a['confidence']})")
-    incs = pipe.run_correlation()
-    print(f"Produced {len(incs)} incident(s) from {n_alerts} alert(s).")
-    for i in incs:
-        print(f"  {i['incident_id']} [{i['severity'].upper()}] {i['title']}  risk={i['risk_score']}")
-        print(f"    chain: {' -> '.join(i['attack_chain']) or '(single-stage)'}")
-        print(f"    mitre: {[m['technique_id'] for m in i['mitre_techniques']]}")
-    if not incs and not n_alerts:
-        print("  No alerts fired (expected for the benign scenario).")
-    return {"alerts": n_alerts, "incidents": len(incs)}
+    with Database(db_path) as db:
+        pipe = Pipeline(db)
+        events = sorted(scenario["events"], key=lambda e: e["timestamp"])
+        print(f"\n=== {scenario['scenario']} ({len(events)} events) ===")
+        prev, n_alerts = None, 0
+        for e in events:
+            ts = datetime.fromisoformat(e["timestamp"])
+            if prev and speed > 0:
+                time.sleep(min((ts - prev).total_seconds() / speed, 3.0))
+            prev = ts
+            try:
+                r = pipe.ingest_event(e)
+            except ValidationError as err:
+                print(f"  REJECTED {e.get('event_id')}: {err}")
+                continue
+            n_alerts += len(r["alerts"])
+            print(f"  {e['timestamp']}  {e['event_type']:<24}{' [%d alert(s)]' % len(r['alerts']) if r['alerts'] else ''}")
+            for a in r["alerts"]:
+                print(f"      -> {a['rule']} (confidence={a['confidence']})")
+        incs = pipe.run_correlation()
+        print(f"Produced {len(incs)} incident(s) from {n_alerts} alert(s).")
+        for i in incs:
+            print(f"  {i['incident_id']} [{i['severity'].upper()}] {i['title']}  risk={i['risk_score']}")
+            print(f"    chain: {' -> '.join(i['attack_chain']) or '(single-stage)'}")
+            print(f"    mitre: {[m['technique_id'] for m in i['mitre_techniques']]}")
+        if not incs and not n_alerts:
+            print("  No alerts fired (expected for the benign scenario).")
+        return {"alerts": n_alerts, "incidents": len(incs)}
 
 
 def main():
