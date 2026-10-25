@@ -50,7 +50,6 @@ class Database:
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._lock = threading.Lock()
 
-        self._lock = threading.Lock()
         self._closed = False
 
         with self._lock:
