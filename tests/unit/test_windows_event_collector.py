@@ -98,6 +98,8 @@ class TestWindowsEventNormalizer(unittest.TestCase):
 
 
     def test_empty_event_data_is_supported(self):
+        xml = SAMPLE_XML
+
         start = xml.index("<EventData>")
         end = xml.index("</EventData>") + len("</EventData>")
         xml = xml[:start] + "<EventData></EventData>" + xml[end:]
