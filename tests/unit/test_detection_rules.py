@@ -60,6 +60,149 @@ class TestCredentialCompromise(Base):
     def test_clean_login_no_alert(self):
         self.assertEqual(self.p.ingest_event(E("s0", "2026-01-01T00:00:00", "login_success", source_ip="9.9.9.9", username="a"))["alerts"], [])
 
+    def test_timezone_offsets_are_compared_as_instants(self):
+        self.p.ingest_event(
+             E("f0", "2026-01-01T05:30:00+05:30", "login_failure",
+                source_ip="9.9.9.9", username="admin")
+        )
+        self.p.ingest_event(
+            E("f1", "2026-01-01T00:01:00Z", "login_failure",
+                source_ip="9.9.9.9", username="admin")
+        )
+        self.p.ingest_event(
+            E("f2", "2026-01-01T00:02:00Z", "login_failure",
+                source_ip="9.9.9.9", username="admin")
+        )
+
+        result = self.p.ingest_event(
+            E("s0", "2026-01-01T00:10:00Z", "login_success",
+                source_ip="9.9.9.9", username="admin")
+        )
+
+        self.assertIn(
+            "POSSIBLE_CREDENTIAL_COMPROMISE",
+            [alert["rule"] for alert in result["alerts"]],
+        )
+
+    def test_success_before_failures_detects_compromise(self):
+        self.p.ingest_event(
+            E("s0", "2026-01-01T00:05:00", "login_success",
+              source_ip="9.9.9.9", username="admin")
+        )
+
+        alerts = []
+        for i in range(3):
+            result = self.p.ingest_event(
+                E(f"f{i}", f"2026-01-01T00:0{i}:00", "login_failure",
+                  source_ip="9.9.9.9", username="admin")
+            )
+            alerts.extend(result["alerts"])
+
+        compromise = [
+            a for a in alerts
+            if a["rule"] == "POSSIBLE_CREDENTIAL_COMPROMISE"
+        ]
+        self.assertEqual(len(compromise), 1)
+        self.assertEqual(
+            set(compromise[0]["evidence"]),
+            {"s0", "f0", "f1", "f2"},
+        )
+
+    def test_repeated_evaluation_does_not_duplicate_compromise_alert(self):
+        for i in range(3):
+            self.p.ingest_event(
+                E(f"f{i}", f"2026-01-01T00:0{i}:00", "login_failure",
+                  source_ip="9.9.9.9", username="admin")
+            )
+
+        first = self.p.ingest_event(
+            E("s0", "2026-01-01T00:05:00", "login_success",
+              source_ip="9.9.9.9", username="admin")
+        )
+        second = self.p.ingest_event(
+            E("f3", "2026-01-01T00:04:00", "login_failure",
+              source_ip="9.9.9.9", username="admin")
+        )
+
+        self.assertEqual(
+            sum(a["rule"] == "POSSIBLE_CREDENTIAL_COMPROMISE"
+                for a in first["alerts"] + second["alerts"]),
+            1,
+        )
+        self.assertEqual(
+            len(self.db.alerts_for_rule("POSSIBLE_CREDENTIAL_COMPROMISE")),
+            1,
+        )
+
+    def test_success_first_outside_window_does_not_alert(self):
+        self.p.ingest_event(
+            E("s0", "2026-01-01T00:20:00", "login_success",
+              source_ip="9.9.9.9", username="admin")
+        )
+
+        alerts = []
+        for i in range(3):
+            result = self.p.ingest_event(
+                E(f"f{i}", f"2026-01-01T00:0{i}:00", "login_failure",
+                  source_ip="9.9.9.9", username="admin")
+            )
+            alerts.extend(result["alerts"])
+
+        self.assertNotIn(
+            "POSSIBLE_CREDENTIAL_COMPROMISE",
+            [a["rule"] for a in alerts],
+        )
+
+
+    def test_distinct_successes_can_create_distinct_alerts(self):
+        for i in range(3):
+            self.p.ingest_event(
+                E(f"f{i}", f"2026-01-01T00:0{i}:00", "login_failure",
+                  source_ip="9.9.9.9", username="admin")
+            )
+
+        first = self.p.ingest_event(
+            E("s0", "2026-01-01T00:05:00", "login_success",
+              source_ip="9.9.9.9", username="admin")
+        )
+        second = self.p.ingest_event(
+            E("s1", "2026-01-01T00:06:00", "login_success",
+              source_ip="9.9.9.9", username="admin")
+        )
+
+        self.assertIn("POSSIBLE_CREDENTIAL_COMPROMISE", self.rules(first))
+        self.assertIn("POSSIBLE_CREDENTIAL_COMPROMISE", self.rules(second))
+        self.assertEqual(
+            len(self.db.alerts_for_rule("POSSIBLE_CREDENTIAL_COMPROMISE")),
+            2,
+        )
+
+
+    def test_failure_exactly_600_seconds_before_success_counts(self):
+        self.p.ingest_event(
+            E("f0", "2026-01-01T00:00:00", "login_failure",
+            source_ip="9.9.9.9", username="admin")
+        )
+        self.p.ingest_event(
+            E("f1", "2026-01-01T00:01:00", "login_failure",
+            source_ip="9.9.9.9", username="admin")
+        )
+        self.p.ingest_event(
+            E("f2", "2026-01-01T00:02:00", "login_failure",
+            source_ip="9.9.9.9", username="admin")
+        )
+
+        result = self.p.ingest_event(
+            E("s0", "2026-01-01T00:10:00", "login_success",
+            source_ip="9.9.9.9", username="admin")
+        )
+
+        compromise_alerts = [
+            alert for alert in result["alerts"]
+            if alert["rule"] == "POSSIBLE_CREDENTIAL_COMPROMISE"
+        ]
+        self.assertEqual(len(compromise_alerts), 1)
+        self.assertIn("f0", compromise_alerts[0]["evidence"])
 
 class TestPowerShell(Base):
     def test_encoded_command_fires(self):

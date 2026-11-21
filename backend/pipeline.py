@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from backend.anomaly.detector import AnomalyDetector
 from backend.correlation.engine import build_incident_from_cluster, correlate
-from backend.detection.rules import evaluate_event
+from backend.detection.rules import (
+    CRED_COMPROMISE_WINDOW_SECONDS,
+    evaluate_event,
+    rule_credential_compromise,
+)
 from backend.investigation.agent import InvestigationAgent
 from backend.mitigation.planner import recommend_for_incident
 from backend.mitre.mapping import map_incident
@@ -34,14 +38,48 @@ class Pipeline:
                                   "event IDs must be unique and immutable.")
         self.db.insert_event(event.to_dict())
         self.db.audit("system", "ingest_event", target=event.event_id, result="success")
+
         fired = []
-        for ad in evaluate_event(event.to_dict(), self.db):
-            alert = Alert(**ad)
-            self.db.insert_alert(alert.to_dict())
-            self.db.audit("system", "alert_fired", target=alert.alert_id, result="success",
-                          details={"rule": alert.rule})
-            fired.append(alert.to_dict())
+        candidates = [event.to_dict()]
+
+        if event.event_type == "login_failure" and event.source_ip:
+            window = self.db.events_in_symmetric_window(
+                "source_ip",
+                event.source_ip,
+                CRED_COMPROMISE_WINDOW_SECONDS,
+                event.timestamp,
+            )
+            candidates.extend(
+                e for e in window
+                if e["event_type"] == "login_success"
+            )
+
+        seen_candidates = set()
+        for candidate in candidates:
+            if candidate["event_id"] in seen_candidates:
+                continue
+            seen_candidates.add(candidate["event_id"])
+
+            if candidate["event_id"] == event.event_id:
+                detections = evaluate_event(candidate, self.db)
+            else:
+                compromise_alert = rule_credential_compromise(candidate, self.db)
+                detections = [compromise_alert] if compromise_alert else []
+
+            for ad in detections:
+                alert = Alert(**ad)
+                self.db.insert_alert(alert.to_dict())
+                self.db.audit(
+                    "system",
+                    "alert_fired",
+                    target=alert.alert_id,
+                    result="success",
+                    details={"rule": alert.rule},
+                )
+                fired.append(alert.to_dict())
+
         return {"event": event.to_dict(), "alerts": fired}
+
 
     def run_correlation(self) -> list:
         open_alerts = self.db.unassigned_alerts()

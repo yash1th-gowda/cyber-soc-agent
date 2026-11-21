@@ -2,6 +2,8 @@
 Every alert names the event IDs that justify it."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from typing import Optional
 
 INTERNAL_PREFIXES = ("10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.",
@@ -29,6 +31,12 @@ def _is_internal(ip: Optional[str]) -> bool:
 
 def _ids(events: list) -> list:
     return [e["event_id"] for e in events]
+
+def _parse_event_timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _already_alerted(db, rule: str, evidence_ids: set) -> bool:
@@ -58,25 +66,76 @@ def rule_brute_force(event, db):
                           f"Target account(s): {', '.join(users) if users else 'unknown'}."]}
 
 
+
 def rule_credential_compromise(event, db):
-    """KNOWN LIMITATION: evaluates only when a login_success is ingested. Robust to the
-    failures arriving out of order, not to the success arriving before some failures."""
-    if event["event_type"] != "login_success" or not event.get("source_ip"):
+    """Detect successful logins associated with repeated failures,
+    regardless of event arrival order."""
+    if event["event_type"] not in ("login_success", "login_failure") or not event.get("source_ip"):
         return None
-    window = db.events_in_symmetric_window("source_ip", event["source_ip"],
-                                           CRED_COMPROMISE_WINDOW_SECONDS, event["timestamp"])
-    failures = [e for e in window if e["event_type"] == "login_failure"]
-    if len(failures) < CRED_COMPROMISE_FAILURE_THRESHOLD:
-        return None
-    ev = _ids(failures) + [event["event_id"]]
-    return {"rule": "POSSIBLE_CREDENTIAL_COMPROMISE", "classification": "possible_credential_compromise",
-            "severity": "critical", "confidence": 0.88, "event_ids": ev, "evidence": ev,
-            "indicators": [event["source_ip"], event.get("username")],
-            "reasoning": [f"Account '{event.get('username')}' authenticated successfully from "
-                          f"{event['source_ip']} at {event['timestamp']} after {len(failures)} failed "
-                          f"attempts from the same source within {CRED_COMPROMISE_WINDOW_SECONDS}s.",
-                          "Consistent with successful brute-force/credential stuffing, but could also be a "
-                          "legitimate user who mistyped a password -- flagged for investigation, not confirmed."]}
+
+    window = db.events_in_symmetric_window(
+        "source_ip",
+        event["source_ip"],
+        CRED_COMPROMISE_WINDOW_SECONDS,
+        event["timestamp"],
+    )
+    successes = [e for e in window if e["event_type"] == "login_success"]
+
+    existing_alerts = db.alerts_for_rule("POSSIBLE_CREDENTIAL_COMPROMISE")
+    alerted_success_ids = set()
+
+    for alert in existing_alerts:
+        for evidence_id in alert["evidence"]:
+            stored_event = db.get_event(evidence_id)
+            if stored_event and stored_event["event_type"] == "login_success":
+                alerted_success_ids.add(evidence_id)
+
+    for success in successes:
+        if success["event_id"] in alerted_success_ids:
+            continue
+
+        # Center the evidence query on this success, not the incoming event.
+        success_window = db.events_in_symmetric_window(
+            "source_ip",
+            success["source_ip"],
+            CRED_COMPROMISE_WINDOW_SECONDS,
+            success["timestamp"],
+        )
+
+        success_time = _parse_event_timestamp(success["timestamp"])
+        failures = []
+
+        for candidate in success_window:
+            if candidate["event_type"] != "login_failure":
+                continue
+
+            failure_time = _parse_event_timestamp(candidate["timestamp"])
+            if abs((failure_time - success_time).total_seconds()) <= CRED_COMPROMISE_WINDOW_SECONDS:
+                failures.append(candidate)
+
+        if len(failures) < CRED_COMPROMISE_FAILURE_THRESHOLD:
+            continue
+
+        ev = _ids(failures) + [success["event_id"]]
+
+        return {
+            "rule": "POSSIBLE_CREDENTIAL_COMPROMISE",
+            "classification": "possible_credential_compromise",
+            "severity": "critical",
+            "confidence": 0.88,
+            "event_ids": ev,
+            "evidence": ev,
+            "indicators": [success["source_ip"], success.get("username")],
+            "reasoning": [
+                f"Account '{success.get('username')}' authenticated successfully from "
+                f"{success['source_ip']} at {success['timestamp']} after {len(failures)} failed "
+                f"attempts from the same source within {CRED_COMPROMISE_WINDOW_SECONDS}s.",
+                "Consistent with successful brute-force/credential stuffing, but could also be a "
+                "legitimate user who mistyped a password -- flagged for investigation, not confirmed.",
+            ],
+        }
+
+    return None
 
 
 def rule_suspicious_powershell(event, db):
