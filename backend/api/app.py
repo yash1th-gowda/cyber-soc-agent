@@ -90,7 +90,14 @@ def create_app(db_path: str = "cyber_soc.db") -> Flask:
     @app.route("/incidents/<incident_id>", methods=["GET"])
     def get_incident(incident_id):
         inc, err = _inc_or_404(incident_id)
-        return err or jsonify(inc)
+
+        if err:
+            return err
+
+        # Retrieve all response actions, including pending proposals.
+        inc["response_actions"] = db.list_response_actions(incident_id)
+
+        return jsonify(inc)
 
     @app.route("/incidents/<incident_id>/timeline", methods=["GET"])
     def get_timeline(incident_id):
@@ -147,8 +154,33 @@ def create_app(db_path: str = "cyber_soc.db") -> Flask:
                     "BLOCK_DOMAIN",
                 ],
             }), 400
+
+        # Prevent duplicate proposals while an identical action is pending.
+        existing_actions = db.list_response_actions(incident_id)
+
+        duplicate = next(
+            (
+                existing for existing in existing_actions
+                if existing.get("status") == "pending_approval"
+                and existing.get("action_type") == action.get("action_type")
+                and existing.get("target") == action.get("target")
+            ),
+            None,
+        )
+
+        if duplicate:
+            return jsonify({
+                "error": "An identical response action is already pending approval.",
+                "existing_action_id": duplicate["action_id"],
+            }), 409
+
         db.insert_response_action(action)
-        db.audit("system", "action_proposed", target=action["action_id"], result="pending_approval")
+        db.audit(
+            "system",
+            "action_proposed",
+            target=action["action_id"],
+            result="pending_approval",
+        )
         return jsonify(action), 201
 
 

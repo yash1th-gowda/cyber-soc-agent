@@ -102,6 +102,51 @@ class TestAPI(unittest.TestCase):
         )
 
 
+    def test_duplicate_pending_proposal_returns_409(self):
+        events = json.loads(
+            (SCEN / "02_credential_compromise.json").read_text()
+        )["events"]
+        iid = self.inc(events)["incident_id"]
+
+        incident = self.c.get(f"/incidents/{iid}").json
+        idx = next(
+            k for k, rec in enumerate(incident["recommendations"])
+            if rec["action"] ==
+            "Temporarily disable the affected account pending verification"
+        )
+
+        first = self.c.post(
+            f"/incidents/{iid}/actions",
+            json={"recommendation_index": idx},
+        )
+        self.assertEqual(first.status_code, 201)
+
+        duplicate = self.c.post(
+            f"/incidents/{iid}/actions",
+            json={"recommendation_index": idx},
+        )
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(
+            duplicate.json["existing_action_id"],
+            first.json["action_id"],
+        )
+
+        # Once the original action is decided, a new proposal is allowed.
+        approved = self.c.post(
+            f"/actions/{first.json['action_id']}/approve",
+            json={"approved_by": "analyst_01"},
+        )
+        self.assertEqual(approved.json["status"], "simulated")
+
+        subsequent = self.c.post(
+            f"/incidents/{iid}/actions",
+            json={"recommendation_index": idx},
+        )
+        self.assertEqual(subsequent.status_code, 201)
+        self.assertEqual(subsequent.json["status"], "pending_approval")
+
+
+
 
     def test_reject_workflow_never_simulates(self):
         events = json.loads(

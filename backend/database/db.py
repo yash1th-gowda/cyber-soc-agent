@@ -207,11 +207,29 @@ class Database:
                  a["status"], a.get("approved_by"), a.get("result"), a.get("created_at"),
                  a.get("decided_at")))
 
+
     def get_response_action(self, action_id: str):
         with self.cursor() as cur:
-            cur.execute("SELECT * FROM response_actions WHERE action_id = ?", (action_id,))
+            cur.execute(
+                "SELECT * FROM response_actions WHERE action_id = ?",
+                (action_id,),
+            )
             r = cur.fetchone()
             return dict(r) if r else None
+
+    def list_response_actions(self, incident_id: str) -> list:
+        with self.cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM response_actions
+                WHERE incident_id = ?
+                AND status != 'rejected'
+                ORDER BY created_at ASC
+                """,
+                (incident_id,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
 
     # ---- audit ----
     def audit(self, actor, action, target="", result="", details=None) -> None:
