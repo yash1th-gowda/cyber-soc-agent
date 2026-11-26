@@ -13,13 +13,13 @@ events -> validation -> detection rules (+ anomaly signal) -> alerts -> correlat
 **Every response action requires explicit human approval and is simulation-only.** No code path touches a real
 network, host, firewall, or identity provider (enforced by a static test).
 
-## Features (all implemented and tested)
+## Implemented capabilities
 - JSON event ingestion with validation; duplicate-ID integrity checks; tolerant of unknown fields
 - 7 deterministic detections: brute force, credential compromise, suspicious PowerShell, credential dumping,
   privilege escalation, suspicious external connection, lateral movement (each cites its evidence event IDs)
 - IsolationForest anomaly **signal** (secondary only; reports `demo_mode` when too little data)
 - Time-window + shared-entity correlation (window measured on event timestamps)
-- Incident timeline, attack chain, deterministic MITRE ATT&CK mapping (confirmed vs suspected), 0-100 risk score
+- Incident timeline, attack chain, deterministic ATT&CK candidate mapping (detected vs suspected; analyst validation required), 0-100 risk score
 - One evidence-grounded investigation agent (mock provider by default)
 - Deterministic mitigation recommendations -> approve/reject -> simulated response
 - Markdown + JSON reports; audit log of system and human actions; SOC dashboard
@@ -50,7 +50,7 @@ Config via env (`.env.example`): `LLM_PROVIDER=mock`, `DB_PATH`, `PORT`, `HOST`,
 `POST /events`, `POST /events/upload`, `GET /events|/alerts|/incidents`, `GET /incidents/{id}[/timeline|/evidence|/mitre|/risk]`,
 `POST /incidents/{id}/investigate`, `POST /incidents/{id}/actions` (`{"recommendation_index": n}`),
 `POST /actions/{id}/approve|reject`, `GET /reports/{id}?format=markdown|json`, `GET /dashboard/summary`, `GET /audit`, `GET /health`. `POST /demo/reset` is disabled by default and intended only for disposable local demo data.
-Errors are JSON; 409 for duplicate/conflicting state, 422 validation, 400 malformed request; stack traces are never returned.
+Errors are JSON; 409 for duplicate/conflicting state, 422 validation, 413 oversized request, 400 malformed request; stack traces are never returned.
 
 ## Architecture status (stated plainly)
 Preferred stack was FastAPI + PostgreSQL/SQLAlchemy + Pydantic. The build sandbox had **no network access**, so the
@@ -62,7 +62,6 @@ project uses **Flask + stdlib sqlite3 + validated dataclasses**. This is deliber
 - Dashboard escapes all event/human-derived text (`esc()`); verified by static tests and inspection, not a browser test.
 - Evaluated on 6 hand-built synthetic scenarios; this is **not** real-world accuracy. See `docs/evaluation.md`.
 - Anomaly detector runs in demo mode on every bundled scenario (1 entity each).
-- `POSSIBLE_CREDENTIAL_COMPROMISE` is robust to failed logins arriving out of order but not to the success arriving first.
 - Incident confidence is the mean of alert confidences (can understate multi-stage incidents).
 - JSON request bodies are capped at 1 MiB; this is not a substitute for authentication or rate limiting.
 - SQLite + one locked connection: demo scale only; no rate limiting.
