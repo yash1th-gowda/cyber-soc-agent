@@ -20,6 +20,10 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 
 def create_app(db_path: str = "cyber_soc.db") -> Flask:
     app = Flask(__name__, static_folder=None)
+    # Bound JSON uploads to limit memory/CPU abuse in this local demo service.
+    app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
+    # The destructive demo reset route is opt-in; never expose it by default.
+    app.config["DEMO_RESET_ENABLED"] = os.environ.get("DEMO_RESET_ENABLED", "0") == "1"
     db = Database(db_path)
     pipeline = Pipeline(db)
     app.config["DB"], app.config["PIPELINE"] = db, pipeline
@@ -32,6 +36,10 @@ def create_app(db_path: str = "cyber_soc.db") -> Flask:
     @app.errorhandler(405)
     def _na(e):
         return jsonify({"error": "method not allowed"}), 405
+
+    @app.errorhandler(413)
+    def _too_large(e):
+        return jsonify({"error": "request body too large"}), 413
 
     @app.errorhandler(500)
     def _ie(e):
@@ -283,6 +291,8 @@ def create_app(db_path: str = "cyber_soc.db") -> Flask:
 
     @app.route("/demo/reset", methods=["POST"])
     def reset():
+        if not app.config["DEMO_RESET_ENABLED"]:
+            return jsonify({"error": "demo reset is disabled"}), 404
         db.reset()
         return jsonify({"status": "reset"})
 
