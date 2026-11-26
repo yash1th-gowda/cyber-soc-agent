@@ -10,6 +10,7 @@ All tests use a uniquely named database inside a TemporaryDirectory; no project 
 (cyber_soc.db, cyber_soc_demo.db) is touched. Cleanup of the directory also fails loudly on
 Windows if a connection was leaked, which is exactly the failure this guards against.
 """
+import sqlite3
 import contextlib
 import importlib.util
 import io
@@ -195,6 +196,145 @@ class TestAppFactoryDoesNotOwnShutdown(TempDbCase):
             self.assertEqual(client.get("/health").status_code, 200)
             self.assertEqual(client.get("/events").status_code, 200)
         self.assertEqual(app.config["DB"].list_events(), [])  # still usable; closing is the caller's job
+
+
+class TestResponseActionPersistence(TempDbCase):
+
+    def create_incident(self, db, incident_id="INC-R44-TEST"):
+        with db.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO incidents (
+                    incident_id, title, severity, confidence, status,
+                    response_actions
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    incident_id,
+                    "R4.4 test incident",
+                    "high",
+                    0.95,
+                    "open",
+                    "[]",
+                ),
+            )
+
+    def make_action(self, action_id, incident_id="INC-R44-TEST"):
+        return {
+            "action_id": action_id,
+            "action_type": "BLOCK_IP",
+            "target": "192.0.2.10",
+            "incident_id": incident_id,
+            "reason": "R4.4 integration test",
+            "status": "pending_approval",
+            "approved_by": None,
+            "result": None,
+            "created_at": "2026-11-23T10:00:00",
+            "decided_at": None,
+        }
+
+    def test_unique_pending_index_across_connections(self):
+        db1 = Database(self.db_path)
+        db2 = Database(self.db_path)
+        self.opened.extend([db1, db2])
+
+        self.create_incident(db1)
+
+        first = self.make_action("ACT-R44-FIRST")
+        db1.insert_response_action(first)
+
+        duplicate = self.make_action("ACT-R44-DUPLICATE")
+
+        # A separate connection must also respect the unique index.
+        with self.assertRaises(sqlite3.IntegrityError):
+            db2.insert_response_action(duplicate)
+
+        # Decide the original proposal.
+        decided = {
+            **first,
+            "status": "simulated",
+            "approved_by": "analyst_test",
+            "result": "Simulated successfully",
+            "decided_at": "2026-11-23T10:05:00",
+        }
+
+        self.assertTrue(
+            db1.finalize_response_action(
+                decided,
+                actor="analyst_test",
+                audit_action="approve_response",
+                audit_result="simulated",
+                include_in_incident=True,
+            )
+        )
+
+        # A new proposal for the same incident, action type and target
+        # should now be allowed.
+        replacement = self.make_action("ACT-R44-REPLACEMENT")
+        db2.insert_response_action(replacement)
+
+        self.assertEqual(
+            db2.get_response_action("ACT-R44-REPLACEMENT")["status"],
+            "pending_approval",
+        )
+
+    def test_response_action_and_audit_survive_database_reopen(self):
+        db = Database(self.db_path)
+        self.opened.append(db)
+
+        self.create_incident(db)
+
+        action = self.make_action("ACT-R44-PERSIST")
+
+        db.insert_response_action(action)
+
+        decided = {
+            **action,
+            "status": "simulated",
+            "approved_by": "analyst_persistence",
+            "result": "Simulated successfully",
+            "decided_at": "2026-11-23T10:10:00",
+        }
+
+        self.assertTrue(
+            db.finalize_response_action(
+                decided,
+                actor="analyst_persistence",
+                audit_action="approve_response",
+                audit_result="simulated",
+                include_in_incident=True,
+            )
+        )
+
+        # Simulate the application/database being shut down.
+        db.close()
+
+        # Reopen the same SQLite file using a fresh connection.
+        reopened = Database(self.db_path)
+        self.opened.append(reopened)
+
+        saved_action = reopened.get_response_action("ACT-R44-PERSIST")
+
+        self.assertIsNotNone(saved_action)
+        self.assertEqual(saved_action["status"], "simulated")
+        self.assertEqual(saved_action["approved_by"], "analyst_persistence")
+        self.assertEqual(saved_action["result"], "Simulated successfully")
+
+        audit_entries = reopened.list_audit()
+
+        matching_audit = [
+            entry for entry in audit_entries
+            if entry["action"] == "approve_response"
+            and json.loads(entry["details"]).get("action_id")
+            == "ACT-R44-PERSIST"
+        ]
+
+        self.assertEqual(len(matching_audit), 1)
+        self.assertEqual(
+            matching_audit[0]["actor"],
+            "analyst_persistence",
+        )
 
 
 if __name__ == "__main__":

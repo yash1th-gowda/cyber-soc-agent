@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -174,7 +175,32 @@ def create_app(db_path: str = "cyber_soc.db") -> Flask:
                 "existing_action_id": duplicate["action_id"],
             }), 409
 
-        db.insert_response_action(action)
+        try:
+            db.insert_response_action(action)
+
+        except sqlite3.IntegrityError:
+            existing_actions = db.list_response_actions(incident_id)
+
+            duplicate = next(
+                (
+                    existing
+                    for existing in existing_actions
+                    if existing.get("status") == "pending_approval"
+                    and existing.get("action_type") == action.get("action_type")
+                    and existing.get("target") == action.get("target")
+                ),
+                None,
+            )
+
+            if duplicate is None:
+                raise
+
+            return jsonify({
+                "error": "An identical response action is already pending approval.",
+                "existing_action_id": duplicate["action_id"],
+            }), 409
+
+
         db.audit(
             "system",
             "action_proposed",
@@ -203,39 +229,23 @@ def create_app(db_path: str = "cyber_soc.db") -> Flask:
         except ValueError as e:
             return jsonify({"error": str(e)}), 409
 
-        # Persist the authoritative action state first.
-        db.insert_response_action(result)
 
-
-        # Keep the incident's response_actions list consistent with
-        # the existing API contract: only approved/simulated actions
-        # are included; rejected actions remain in the action table
-        # and audit trail.
-        inc = db.get_incident(result["incident_id"])
-        if inc:
-            actions = inc.get("response_actions", [])
-            actions = [
-                existing for existing in actions
-                if existing.get("action_id") != result["action_id"]
-            ]
-
-            if approve:
-                actions.append(result)
-
-            inc["response_actions"] = actions
-            db.insert_incident(inc)
-
-
-        db.audit(
-            who,
-            "approve_response" if approve else "reject_response",
-            target=result["target"],
-            result="simulated" if approve else "rejected",
-            details={
-                "incident_id": result["incident_id"],
-                "action_id": action_id,
-            },
+        # Atomically update the action, incident, and audit log.
+        updated = db.finalize_response_action(
+            result,
+            actor=who,
+            audit_action=(
+                "approve_response" if approve else "reject_response"
+            ),
+            audit_result="simulated" if approve else "rejected",
+            include_in_incident=approve,
         )
+
+        if not updated:
+            return jsonify({
+                "error": "This action has already been decided."
+            }), 409
+
         return jsonify(result)
 
     @app.route("/actions/<action_id>/approve", methods=["POST"])

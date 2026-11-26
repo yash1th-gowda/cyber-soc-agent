@@ -1,8 +1,12 @@
+import threading
+import sqlite3
+from unittest import mock
 import json, os, sys, tempfile, unittest
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from backend.api.app import create_app
+from backend.database.db import Database
 SCEN = ROOT / "data" / "scenarios"
 PRIV = [{"event_id": "mi1", "timestamp": "2026-01-01T00:00:00", "source": "t", "event_type": "group_membership_change",
          "username": "x", "hostname": "h", "message": "x added to Administrators group"}]
@@ -101,7 +105,6 @@ class TestAPI(unittest.TestCase):
             self.c.get(f"/reports/{iid}?format=markdown").data.decode(),
         )
 
-
     def test_duplicate_pending_proposal_returns_409(self):
         events = json.loads(
             (SCEN / "02_credential_compromise.json").read_text()
@@ -144,9 +147,6 @@ class TestAPI(unittest.TestCase):
         )
         self.assertEqual(subsequent.status_code, 201)
         self.assertEqual(subsequent.json["status"], "pending_approval")
-
-
-
 
     def test_reject_workflow_never_simulates(self):
         events = json.loads(
@@ -223,6 +223,196 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(self.c.get(f"/incidents/{iid}/risk").json["total"], i["risk_score"])
         self.assertEqual(self.c.get("/dashboard/summary").json["total_incidents"], 1)
 
+    def test_competing_decisions_only_one_succeeds(self):
+        events = json.loads(
+            (SCEN / "02_credential_compromise.json").read_text()
+        )["events"]
+        iid = self.inc(events)["incident_id"]
+
+        incident = self.c.get(f"/incidents/{iid}").json
+        idx = next(
+            k for k, rec in enumerate(incident["recommendations"])
+            if rec["action"] ==
+            "Temporarily disable the affected account pending verification"
+        )
+
+        proposal = self.c.post(
+            f"/incidents/{iid}/actions",
+            json={"recommendation_index": idx},
+        )
+        self.assertEqual(proposal.status_code, 201)
+
+        action_id = proposal.json["action_id"]
+        action = self.app.config["DB"].get_response_action(action_id)
+
+        barrier = threading.Barrier(2)
+        outcomes = []
+        errors = []
+        outcome_lock = threading.Lock()
+
+        def decide(actor):
+            db = Database(self.path)
+            try:
+                result = {
+                    **action,
+                    "status": "simulated",
+                    "approved_by": actor,
+                    "result": f"SIMULATED: approved by {actor}",
+                    "decided_at": f"2026-11-23T00:00:0{1 if actor == 'analyst_1' else 2}+00:00",
+                }
+
+                barrier.wait(timeout=5)
+
+                success = db.finalize_response_action(
+                    result,
+                    actor=actor,
+                    audit_action="approve_response",
+                    audit_result="simulated",
+                    include_in_incident=True,
+                )
+
+                with outcome_lock:
+                    outcomes.append(success)
+
+            except Exception as exc:
+                with outcome_lock:
+                    errors.append(exc)
+            finally:
+                db.close()
+
+        threads = [
+            threading.Thread(target=decide, args=("analyst_1",)),
+            threading.Thread(target=decide, args=("analyst_2",)),
+        ]
+
+        for thread in threads:
+            thread.start()
+
+        for thread in threads:
+            thread.join(timeout=10)
+
+        self.assertTrue(
+            all(not thread.is_alive() for thread in threads),
+            "Decision threads did not finish",
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(outcomes), [False, True])
+
+        db = self.app.config["DB"]
+        stored = db.get_response_action(action_id)
+        self.assertEqual(stored["status"], "simulated")
+
+        audit = self.c.get("/audit").json
+        approvals = [
+            entry for entry in audit
+            if entry["action"] == "approve_response"
+            and json.loads(entry["details"]).get("action_id") == action_id
+        ]
+        self.assertEqual(len(approvals), 1)
+
+
+    def test_response_decision_rolls_back_when_audit_insert_fails(self):
+        events = json.loads(
+            (SCEN / "02_credential_compromise.json").read_text()
+        )["events"]
+        iid = self.inc(events)["incident_id"]
+
+        incident = self.c.get(f"/incidents/{iid}").json
+        idx = next(
+            k for k, rec in enumerate(incident["recommendations"])
+            if rec["action"] ==
+            "Temporarily disable the affected account pending verification"
+        )
+
+        proposal = self.c.post(
+            f"/incidents/{iid}/actions",
+            json={"recommendation_index": idx},
+        )
+        self.assertEqual(proposal.status_code, 201)
+        action_id = proposal.json["action_id"]
+
+        db = self.app.config["DB"]
+
+
+        # The new atomic method writes audit_log directly through SQL.
+        # Install a SQLite trigger to simulate an audit insertion failure.
+        with db.cursor() as cur:
+            cur.execute("""
+                CREATE TRIGGER fail_response_audit
+                BEFORE INSERT ON audit_log
+                WHEN NEW.action = 'approve_response'
+                BEGIN
+                    SELECT RAISE(ABORT, 'simulated audit failure');
+                END
+            """)
+
+        # Capture the incident only after releasing the database lock.
+        incident_before = self.c.get(f"/incidents/{iid}").json
+        action = db.get_response_action(action_id)
+        result = {
+            **action,
+            "status": "simulated",
+            "approved_by": "analyst_01",
+            "result": "SIMULATED: test",
+            "decided_at": "2026-11-23T00:00:00+00:00",
+        }
+
+        with self.assertRaisesRegex(Exception, "simulated audit failure"):
+            db.finalize_response_action(
+                result,
+                actor="analyst_01",
+                audit_action="approve_response",
+                audit_result="simulated",
+                include_in_incident=True,
+            )
+
+        # The action must remain pending after transaction rollback.
+        refreshed = self.c.get(f"/incidents/{iid}").json
+        self.assertEqual(
+            refreshed["response_actions"],
+            incident_before["response_actions"],
+        )
+
+        # No approval audit entry should have been committed.
+        audit = self.c.get("/audit").json
+        self.assertFalse(any(
+            entry["action"] == "approve_response"
+            and entry["target"] == action["target"]
+            for entry in audit
+        ))
+
+        # Remove the test trigger.
+        with db.cursor() as cur:
+            cur.execute("DROP TRIGGER fail_response_audit")
+
+    def test_unrelated_integrity_error_is_not_reported_as_duplicate(self):
+        events = json.loads(
+            (SCEN / "02_credential_compromise.json").read_text()
+        )["events"]
+        iid = self.inc(events)["incident_id"]
+
+        incident = self.c.get(f"/incidents/{iid}").json
+        idx = next(
+            k for k, rec in enumerate(incident["recommendations"])
+            if rec["action"] ==
+            "Temporarily disable the affected account pending verification"
+        )
+
+        with mock.patch.object(
+            self.c.application.config["DB"],
+            "insert_response_action",
+            side_effect=sqlite3.IntegrityError("unrelated constraint failure"),
+        ):
+            response = self.c.post(
+                f"/incidents/{iid}/actions",
+                json={"recommendation_index": idx},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json,
+            {"error": "internal server error"},
+        )
 
 if __name__ == "__main__":
     unittest.main()

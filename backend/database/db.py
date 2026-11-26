@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS response_actions (
     action_id TEXT PRIMARY KEY, action_type TEXT NOT NULL, target TEXT NOT NULL,
     incident_id TEXT NOT NULL, reason TEXT, status TEXT NOT NULL, approved_by TEXT,
     result TEXT, created_at TEXT, decided_at TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pending_response_action
+ON response_actions (incident_id, action_type, target)
+WHERE status = 'pending_approval';
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT DEFAULT (datetime('now')),
     actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT, result TEXT, details TEXT);
@@ -201,11 +204,100 @@ class Database:
     def insert_response_action(self, a: dict) -> None:
         with self.cursor() as cur:
             cur.execute(
-                """INSERT OR REPLACE INTO response_actions (action_id,action_type,target,incident_id,
-                reason,status,approved_by,result,created_at,decided_at) VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (a["action_id"], a["action_type"], a["target"], a["incident_id"], a.get("reason"),
-                 a["status"], a.get("approved_by"), a.get("result"), a.get("created_at"),
-                 a.get("decided_at")))
+                """INSERT INTO response_actions
+                (action_id, action_type, target, incident_id, reason, status,
+                 approved_by, result, created_at, decided_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    a["action_id"],
+                    a["action_type"],
+                    a["target"],
+                    a["incident_id"],
+                    a.get("reason"),
+                    a["status"],
+                    a.get("approved_by"),
+                    a.get("result"),
+                    a.get("created_at"),
+                    a.get("decided_at"),
+                ),
+            )
+
+
+    def finalize_response_action(
+        self,
+        a: dict,
+        actor: str,
+        audit_action: str,
+        audit_result: str,
+        include_in_incident: bool,
+    ) -> bool:
+        """Atomically decide an action, update its incident, and audit it."""
+        with self.cursor() as cur:
+            # Only one request can transition a pending action.
+            cur.execute(
+                """
+                UPDATE response_actions
+                SET status = ?, approved_by = ?, result = ?, decided_at = ?
+                WHERE action_id = ? AND status = 'pending_approval'
+                """,
+                (
+                    a["status"],
+                    a.get("approved_by"),
+                    a.get("result"),
+                    a.get("decided_at"),
+                    a["action_id"],
+                ),
+            )
+
+            if cur.rowcount != 1:
+                return False
+
+            # Update the incident's response action history.
+            cur.execute(
+                "SELECT response_actions FROM incidents WHERE incident_id = ?",
+                (a["incident_id"],),
+            )
+            incident = cur.fetchone()
+
+            if incident:
+                actions = json.loads(incident["response_actions"] or "[]")
+                actions = [
+                    existing for existing in actions
+                    if existing.get("action_id") != a["action_id"]
+                ]
+
+                if include_in_incident:
+                    actions.append(a)
+
+                cur.execute(
+                    """
+                    UPDATE incidents
+                    SET response_actions = ?
+                    WHERE incident_id = ?
+                    """,
+                    (json.dumps(actions), a["incident_id"]),
+                )
+
+            # Record the decision in the same transaction.
+            cur.execute(
+                """
+                INSERT INTO audit_log (actor, action, target, result, details)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    actor,
+                    audit_action,
+                    a["target"],
+                    audit_result,
+                    json.dumps({
+                        "incident_id": a["incident_id"],
+                        "action_id": a["action_id"],
+                    }),
+                ),
+            )
+
+            return True
+
 
 
     def get_response_action(self, action_id: str):
@@ -223,7 +315,7 @@ class Database:
                 """
                 SELECT * FROM response_actions
                 WHERE incident_id = ?
-                AND status != 'rejected'
+                AND status NOT IN ('rejected', 'superseded')
                 ORDER BY created_at ASC
                 """,
                 (incident_id,),
