@@ -26,7 +26,10 @@ Correlation: grouping and separation checks pass (multi-stage merges; unrelated 
 Not measured: anomaly-detector ROC/PR (no labeled multi-entity data; every scenario has 1 entity -> `demo_mode`), hallucination rate of a real LLM
 (none was run), throughput/latency. What data would be needed: a labeled, multi-entity telemetry corpus with benign baselines.
 
-## ATT&CK interpretation\nThe mapping status `detected` means a deterministic rule crossed its configured confidence threshold and was mapped to a candidate ATT&CK technique. It does **not** mean the underlying adversary technique has been independently confirmed. In particular, an external connection alone does not prove exfiltration over C2; analysts must validate the surrounding evidence.\n\n## AI investigation checks (what was actually verified)
+## ATT&CK interpretation
+The mapping status `detected` means a deterministic rule crossed its configured confidence threshold and was mapped to a candidate ATT&CK technique. It does **not** mean the underlying adversary technique has been independently confirmed. In particular, an external connection alone does not prove exfiltration over C2; analysts must validate the surrounding evidence.
+
+## AI investigation checks (what was actually verified)
 The mock provider is extractive: tests confirm outputs contain the required fields, cite evidence IDs, state alternative explanations and
 missing evidence, never claim executed actions, and are unchanged by injected instructions in `command`/`message`/`username`. No claim is made
 about LLM-provider quality.
