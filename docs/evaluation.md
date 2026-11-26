@@ -4,11 +4,11 @@ The evaluation uses six synthetic scenarios and does not represent general real-
 The scenarios were written by the developers, each sitting clearly on one side of the rule thresholds.
 
 ## Test suite (measured)
-Historical repository documentation recorded 82 unittest cases. On 2026-11-27, the developer reported a local Windows run of `python -m pytest -q`: **150 passed, 12 subtests passed, 8.20 s**. That run was performed before the R4.5 request-size/reset-guard tests were added; rerun the suite on the review branch before treating a post-hardening count as verified. The GitHub Actions workflow runs the dependency-light unittest discovery command on Python 3.11 and 3.12.
+Historical repository documentation recorded 82 unittest cases. On 2026-11-27, the developer verified the R4.5 branch locally on Windows: `python -m pytest -q` reported **153 passed, 12 subtests passed (8.70 s)**. The separate warnings-as-errors unittest run reported **153 tests, OK**. The Python compile check and `git diff main...HEAD --check` also completed successfully. GitHub Actions passed on Python 3.11 and 3.12 (two successful runs per version on the latest PR commit).
 Coverage: every detection rule (positive/negative), out-of-order and burst-dedup regressions, duplicate-ID handling, malformed input,
 correlation (should/should-not group, time window, benign mixed in), MITRE candidate mapping, risk bounds/determinism, response safety
 (no execution without approval, no real-execution primitives in source, double-decision fails closed), prompt-injection payloads,
-API validation/404/409/400/500 behaviour, dashboard escaping (static), full-scenario pipeline, persistence on reopen.
+API validation/404/409/400/500 behaviour, dashboard escaping (static), full-scenario pipeline, persistence on reopen, request-size enforcement, and guarded demo-reset behaviour.
 
 ## Scenario results (measured)
 | Scenario | Expected | Actual | Status |
