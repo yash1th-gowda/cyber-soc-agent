@@ -1,16 +1,12 @@
 # Engineering Report (hardening phase)
 
-## Provenance - read this first
-The hardening pass was performed on the originally built code (baseline recorded then: 43 tests, 43 passed, 0 failed, ~0.45 s).
-Between turns the sandbox was **reset and the working directory was lost** (the project had not yet been copied to outputs).
-The project was **rebuilt from the conversation record with every hardening fix included**, then re-verified from scratch.
-All results below are from the rebuilt code in this repository; the 43-test baseline is historical and not reproducible here.
-The rebuild also tightened a few things (see D). Nothing in this report is carried over unverified.
+## Provenance and verification status
+This report combines historical project verification with the R4.4 state and the R4.5 repository-readiness changes. On 2026-11-27, the developer verified the R4.5 branch locally on Windows: `python -m pytest -q` reported **153 passed, 12 subtests passed (8.70 s)**. The separate command `python -W error::DeprecationWarning -m unittest discover -s tests -p "test_*.py"` reported **153 tests, OK**. `python -m compileall -q backend scripts tests` and `git diff main...HEAD --check` completed successfully. GitHub Actions passed on Python 3.11 and 3.12, with two successful runs per version on the latest PR commit. These results verify the tested branch state; they do not establish production readiness or real-world detection accuracy.
 
 ## A. Summary of changes (vs. the original build)
 Correctness: out-of-order ingestion fix; duplicate-ID integrity; unknown-field tolerance; correlation window on event time;
 timezone-aware timestamps. Security: dashboard escaping, identifier validation, no stack-trace leakage, debug off, localhost bind,
-input clamping. Tests: 82 (from 43). Docs rewritten to match code.
+input clamping. Historical test count: 82 (from 43); the current R4.5 verification is recorded above.
 
 ## B. Defects found and fixed
 | # | Defect (reproduced before fixing) | Fix | Regression test |
@@ -31,7 +27,7 @@ input clamping. Tests: 82 (from 43). Docs rewritten to match code.
 | Ingestion + validation | Verified | unit + API tests |
 | 7 detection rules | Verified | per-rule positive/negative tests, scenario runs |
 | Correlation / incident / timeline / attack chain | Verified | correlation tests, primary scenario test (timeline sorted, chain exact) |
-| MITRE mapping (confirmed/suspected, evidence) | Verified | `test_mitre_mapping.py`, scenario test |
+| ATT&CK candidate mapping (detected/suspected, evidence) | Verified | `test_mitre_mapping.py`, scenario test |
 | Risk score | Verified | bounds + determinism test; breakdown endpoint in live run |
 | Mock investigation (grounded, uncertainty, no execution claims) | Verified | `TestPromptInjection` |
 | Mitigation -> approval -> simulation -> audit -> report | Verified | API tests + live HTTP run |
@@ -45,7 +41,11 @@ Added during rebuild: buttons use event listeners instead of inline `onclick`; `
 shows critical/high count and recent activity; extra tests (correlation scenarios, API 404/400 matrix, reject flow, prompt-injection payload set).
 
 ## E. Test results (measured)
-`Ran 82 tests, OK`: 61 unit + 21 integration; 0 failed, 0 errors, 0 skipped; ~1.0 s (warnings-as-errors).
+- Current R4.5 local pytest run: **153 passed, 12 subtests passed (8.70 s)**.
+- Current R4.5 unittest run with deprecation warnings treated as errors: **153 tests, OK**.
+- Python compile check and Git diff whitespace check: passed.
+- GitHub Actions: Python 3.11 and 3.12 both passed (two successful runs per version on the latest PR commit).
+- Historical result: `Ran 82 tests, OK` (61 unit + 21 integration); retained as historical context, not the current result.
 
 ## F. Demo results
 See table in `docs/evaluation.md` - all six scenarios match documented expectations. Live HTTP run: upload -> 9 events, 5 alerts, 1 critical
@@ -55,7 +55,7 @@ A generated report is saved as `docs/sample_incident_report.md`.
 
 ## G. Known limitations
 No auth/RBAC; no rate limiting; six synthetic scenarios only (no real-world accuracy claim); anomaly detector always in demo mode here; mean-confidence
-aggregation can understate multi-stage incidents; credential-compromise success-before-failures gap; shared source IP merges unrelated users' alerts (documented by test);
+aggregation can understate multi-stage incidents; shared source IP merges unrelated users' alerts (documented by test);
 dashboard not browser-tested; SQLite demo scale.
 
 ## H. Optional features
@@ -66,5 +66,12 @@ Not implemented **due to environment**: FastAPI/PostgreSQL/Pydantic (no network)
 Flask + sqlite3 remain because the build environment could not install FastAPI/SQLAlchemy/Pydantic; the deviation from the original preference is deliberate and documented. Migration is future work.
 
 ## J. Recommendation
-**READY FOR DEMO** (local, single user, trusted network). **Not yet ready for academic submission as a validated detector**: acceptable only if presented as
+**Suitable for a controlled local demo only.** **Not yet ready for academic submission as a validated detector**: acceptable only if presented as
 a design/integration project with the stated synthetic-data limitation and the no-auth gap disclosed; the UI should be exercised once in a real browser first.
+
+## K. R4.5 repository-readiness changes
+- Added a 1 MiB Flask request-body limit with a JSON 413 response.
+- Disabled the destructive demo-reset endpoint by default; it requires `DEMO_RESET_ENABLED=1`.
+- Added API tests for both safeguards and a Python 3.11/3.12 GitHub Actions workflow.
+- Updated README and security/architecture/evaluation documentation to describe these safeguards and avoid presenting rule-based ATT&CK mappings as independently confirmed.
+- **Verification complete for this branch:** local test, compile, diff, and Python 3.11/3.12 CI checks passed. No claim is made that R4.5 is production-ready; authentication/RBAC and rate limiting remain absent.

@@ -414,5 +414,38 @@ class TestAPI(unittest.TestCase):
             {"error": "internal server error"},
         )
 
+
+    def test_oversized_json_request_returns_413(self):
+        response = self.c.post(
+            "/events/upload",
+            data=b'{"events":[]}' + (b" " * (1024 * 1024)),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json, {"error": "request body too large"})
+
+    def test_demo_reset_is_disabled_by_default(self):
+        response = self.c.post("/demo/reset")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json, {"error": "demo reset is disabled"})
+
+    def test_demo_reset_requires_explicit_opt_in(self):
+        path = tempfile.mktemp(suffix=".db")
+        with mock.patch.dict(os.environ, {"DEMO_RESET_ENABLED": "1"}):
+            app = create_app(path)
+        self.extra_apps.append(app)
+        client = app.test_client()
+        event = {
+            "event_id": "reset-test",
+            "timestamp": "2026-01-01T00:00:00",
+            "source": "test",
+            "event_type": "login_success",
+        }
+        self.assertEqual(client.post("/events", json=event).status_code, 201)
+        response = client.post("/demo/reset")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {"status": "reset"})
+        self.assertEqual(client.get("/events").json, [])
+
 if __name__ == "__main__":
     unittest.main()

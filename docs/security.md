@@ -15,11 +15,12 @@ This is a security tool, so it is treated as a target. Event content is **untrus
 | Error handling | JSON 404/405/500 handlers; no stack traces to clients; Flask debug off by default (`FLASK_DEBUG=1` to opt in); server binds 127.0.0.1 by default | `test_unhandled_exception_returns_clean_500` |
 | Secrets | `OPENAI_API_KEY` from environment only; none committed; provider fails closed without it | `test_openai_provider_fails_closed_without_key` |
 | Audit | Ingest, alerts, incidents, proposals, approvals/rejections, duplicate conflicts, unhandled exceptions logged | API audit test |
-| Limits | `limit` query params clamped to 1..2000; `approved_by` truncated to 64 chars | code |
+| Limits | `limit` query params clamped to 1..2000; `approved_by` truncated to 64 chars; JSON request body capped at 1 MiB | code + API tests |
+| Destructive demo endpoint | `POST /demo/reset` returns 404 unless `DEMO_RESET_ENABLED=1` is explicitly configured | API tests |
 
 ## Gaps (not fixed, by scope)
 1. **No authentication/RBAC** - anyone who can reach the port can approve (simulated) actions and claim any identity. Do not expose it.
-2. No rate limiting; SQLite with one locked connection (demo scale).
+2. No authentication/RBAC or rate limiting; SQLite with one locked connection (demo scale). The request-size cap is only a resource guard, not access control.
 3. `esc()` fix verified statically/by inspection only (no JS runner in this environment).
 4. `POSSIBLE_CREDENTIAL_COMPROMISE` is not retroactively re-evaluated if the success event arrives before its failures.
 5. Free-text fields (`message`, `command`) are stored verbatim by design; safety relies on output escaping.

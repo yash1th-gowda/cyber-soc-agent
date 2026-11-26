@@ -13,17 +13,17 @@ events -> validation -> detection rules (+ anomaly signal) -> alerts -> correlat
 **Every response action requires explicit human approval and is simulation-only.** No code path touches a real
 network, host, firewall, or identity provider (enforced by a static test).
 
-## Features (all implemented and tested)
+## Implemented capabilities
 - JSON event ingestion with validation; duplicate-ID integrity checks; tolerant of unknown fields
 - 7 deterministic detections: brute force, credential compromise, suspicious PowerShell, credential dumping,
   privilege escalation, suspicious external connection, lateral movement (each cites its evidence event IDs)
 - IsolationForest anomaly **signal** (secondary only; reports `demo_mode` when too little data)
 - Time-window + shared-entity correlation (window measured on event timestamps)
-- Incident timeline, attack chain, deterministic MITRE ATT&CK mapping (confirmed vs suspected), 0-100 risk score
+- Incident timeline, attack chain, deterministic ATT&CK candidate mapping (detected vs suspected; analyst validation required), 0-100 risk score
 - One evidence-grounded investigation agent (mock provider by default)
 - Deterministic mitigation recommendations -> approve/reject -> simulated response
 - Markdown + JSON reports; audit log of system and human actions; SOC dashboard
-- 6 synthetic scenarios incl. one benign false-positive check; 85 automated tests
+- 6 synthetic scenarios, including one benign false-positive check
 
 ## Not implemented
 By design/scope: authentication/RBAC, RAG, attack-graph UI, WebSocket live feed, real LLM call.
@@ -36,7 +36,7 @@ python3 -m backend.api.app            # http://127.0.0.1:5000  (binds localhost;
 python3 scripts/replay.py --list
 python3 scripts/replay.py --scenario credential_compromise --db cyber_soc.db   # same DB as the server -> visible in dashboard
 python3 scripts/replay.py --all
-python3 -m unittest discover -s tests -p "test_*.py"
+python3 -m unittest discover -s tests -p "test_*.py"  # dependency-light test runner
 ```
 Or load a scenario into a running server:
 ```python
@@ -44,27 +44,30 @@ import json, urllib.request as u
 ev = json.load(open("data/scenarios/02_credential_compromise.json"))["events"]
 u.urlopen(u.Request("http://127.0.0.1:5000/events/upload", json.dumps({"events": ev}).encode(), {"Content-Type": "application/json"}))
 ```
-Config via env (`.env.example`): `LLM_PROVIDER=mock`, `DB_PATH`, `PORT`, `HOST`, `FLASK_DEBUG` (off by default).
+Config via env (`.env.example`): `LLM_PROVIDER=mock`, `DB_PATH`, `PORT`, `HOST`, `FLASK_DEBUG` (off by default), and `DEMO_RESET_ENABLED` (off by default). JSON requests are limited to 1 MiB. The destructive `POST /demo/reset` route returns 404 unless `DEMO_RESET_ENABLED=1` is explicitly set.
 
 ## API
 `POST /events`, `POST /events/upload`, `GET /events|/alerts|/incidents`, `GET /incidents/{id}[/timeline|/evidence|/mitre|/risk]`,
 `POST /incidents/{id}/investigate`, `POST /incidents/{id}/actions` (`{"recommendation_index": n}`),
-`POST /actions/{id}/approve|reject`, `GET /reports/{id}?format=markdown|json`, `GET /dashboard/summary`, `GET /audit`, `GET /health`.
-Errors are JSON; 409 for duplicate/conflicting state, 422 validation, 400 malformed request; stack traces are never returned.
+`POST /actions/{id}/approve|reject`, `GET /reports/{id}?format=markdown|json`, `GET /dashboard/summary`, `GET /audit`, `GET /health`. `POST /demo/reset` is disabled by default and intended only for disposable local demo data.
+Errors are JSON; 409 for duplicate/conflicting state, 422 validation, 413 oversized request, 400 malformed request; stack traces are never returned.
 
 ## Architecture status (stated plainly)
 Preferred stack was FastAPI + PostgreSQL/SQLAlchemy + Pydantic. The build sandbox had **no network access**, so the
 project uses **Flask + stdlib sqlite3 + validated dataclasses**. This is deliberate and documented; migration is future work.
 
 ## Security model and limitations
-- **No authentication/RBAC. Do not expose to untrusted callers.** `approved_by` is an unverified free-text field.
+- **No authentication/RBAC. Do not expose to untrusted callers or the public internet.** `approved_by` is an unverified free-text field.
 - Prompt injection: log text is data; the default provider never calls an LLM. The OpenAI prompt boundary is a design, unverified.
 - Dashboard escapes all event/human-derived text (`esc()`); verified by static tests and inspection, not a browser test.
 - Evaluated on 6 hand-built synthetic scenarios; this is **not** real-world accuracy. See `docs/evaluation.md`.
 - Anomaly detector runs in demo mode on every bundled scenario (1 entity each).
-- `POSSIBLE_CREDENTIAL_COMPROMISE` is robust to failed logins arriving out of order but not to the success arriving first.
 - Incident confidence is the mean of alert confidences (can understate multi-stage incidents).
+- JSON request bodies are capped at 1 MiB; this is not a substitute for authentication or rate limiting.
 - SQLite + one locked connection: demo scale only; no rate limiting.
+
+## Contributing and security
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing, and pull-request guidance. See [SECURITY.md](SECURITY.md) for safe-use boundaries and vulnerability reporting.
 
 ## Docs
 `docs/architecture.md`, `docs/evaluation.md`, `docs/security.md`, `docs/engineering_report.md`,

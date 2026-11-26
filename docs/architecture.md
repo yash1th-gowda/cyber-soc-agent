@@ -21,6 +21,9 @@ Modular monolith: `frontend/dashboard.html` -> Flask API (`backend/api/app.py`) 
 8. **Respond** (`response/simulator.py`): propose (`pending_approval`) -> human approve/reject -> `execute_simulated` only from `approved`.
 9. **Report** (`reporting/`) and **audit** (`audit_log` table) for every system and human action.
 
+## API safety defaults
+The Flask app caps incoming request bodies at 1 MiB. The destructive `POST /demo/reset` endpoint is disabled unless `DEMO_RESET_ENABLED=1` is explicitly set. These safeguards reduce accidental or oversized demo requests; they do not provide authentication, authorization, or rate limiting.
+
 ## Anomaly signal
 `anomaly/detector.py` (IsolationForest over per-user counts). Output vocabulary is only `normal`/`anomalous`, flagged
 `demo_mode` below 12 entities. It is **not** wired to override or create detections; it is a separate, explicitly secondary signal.
