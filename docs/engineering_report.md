@@ -1,12 +1,12 @@
 # Engineering Report (hardening phase)
 
 ## Provenance and verification status
-This report combines historical project verification with the R4.4 state and the R4.5 repository-readiness changes. Do not treat historical test counts as a current post-change result. On 2026-11-27, the developer reported a local Windows baseline of 150 pytest tests passed plus 12 subtests in 8.20 seconds, before the R4.5 request-size and demo-reset safeguards were added. The R4.5 branch requires a fresh local run and CI result before its final test count is published.
+This report combines historical project verification with the R4.4 state and the R4.5 repository-readiness changes. On 2026-11-27, the developer verified the R4.5 branch locally on Windows: `python -m pytest -q` reported **153 passed, 12 subtests passed (8.70 s)**. The separate command `python -W error::DeprecationWarning -m unittest discover -s tests -p "test_*.py"` reported **153 tests, OK**. `python -m compileall -q backend scripts tests` and `git diff main...HEAD --check` completed successfully. GitHub Actions passed on Python 3.11 and 3.12, with two successful runs per version on the latest PR commit. These results verify the tested branch state; they do not establish production readiness or real-world detection accuracy.
 
 ## A. Summary of changes (vs. the original build)
 Correctness: out-of-order ingestion fix; duplicate-ID integrity; unknown-field tolerance; correlation window on event time;
 timezone-aware timestamps. Security: dashboard escaping, identifier validation, no stack-trace leakage, debug off, localhost bind,
-input clamping. Historical test count: 82 (from 43); the later developer-reported local baseline is recorded above. R4.5 verification is pending.
+input clamping. Historical test count: 82 (from 43); the current R4.5 verification is recorded above.
 
 ## B. Defects found and fixed
 | # | Defect (reproduced before fixing) | Fix | Regression test |
@@ -41,7 +41,11 @@ Added during rebuild: buttons use event listeners instead of inline `onclick`; `
 shows critical/high count and recent activity; extra tests (correlation scenarios, API 404/400 matrix, reject flow, prompt-injection payload set).
 
 ## E. Test results (measured)
-Historical result: `Ran 82 tests, OK` (61 unit + 21 integration). This is not the post-R4.5 verification result.
+- Current R4.5 local pytest run: **153 passed, 12 subtests passed (8.70 s)**.
+- Current R4.5 unittest run with deprecation warnings treated as errors: **153 tests, OK**.
+- Python compile check and Git diff whitespace check: passed.
+- GitHub Actions: Python 3.11 and 3.12 both passed (two successful runs per version on the latest PR commit).
+- Historical result: `Ran 82 tests, OK` (61 unit + 21 integration); retained as historical context, not the current result.
 
 ## F. Demo results
 See table in `docs/evaluation.md` - all six scenarios match documented expectations. Live HTTP run: upload -> 9 events, 5 alerts, 1 critical
@@ -62,7 +66,7 @@ Not implemented **due to environment**: FastAPI/PostgreSQL/Pydantic (no network)
 Flask + sqlite3 remain because the build environment could not install FastAPI/SQLAlchemy/Pydantic; the deviation from the original preference is deliberate and documented. Migration is future work.
 
 ## J. Recommendation
-**Suitable for a controlled local demo only**, after rerunning the current branch tests. **Not yet ready for academic submission as a validated detector**: acceptable only if presented as
+**Suitable for a controlled local demo only.** **Not yet ready for academic submission as a validated detector**: acceptable only if presented as
 a design/integration project with the stated synthetic-data limitation and the no-auth gap disclosed; the UI should be exercised once in a real browser first.
 
 ## K. R4.5 repository-readiness changes
@@ -70,4 +74,4 @@ a design/integration project with the stated synthetic-data limitation and the n
 - Disabled the destructive demo-reset endpoint by default; it requires `DEMO_RESET_ENABLED=1`.
 - Added API tests for both safeguards and a Python 3.11/3.12 GitHub Actions workflow.
 - Updated README and security/architecture/evaluation documentation to describe these safeguards and avoid presenting rule-based ATT&CK mappings as independently confirmed.
-- **Verification pending:** run the complete suite and review the CI result on this branch. No claim is made that R4.5 is production-ready; authentication/RBAC and rate limiting remain absent.
+- **Verification complete for this branch:** local test, compile, diff, and Python 3.11/3.12 CI checks passed. No claim is made that R4.5 is production-ready; authentication/RBAC and rate limiting remain absent.
